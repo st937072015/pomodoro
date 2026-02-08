@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>蕃茄鐘</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "PingFang TC", sans-serif; margin: 0; background:#0ea5e9; color:#0b1220; }
+    .wrap { max-width: 520px; margin: 0 auto; padding: 24px; }
+    .card { background: rgba(255,255,255,.92); border-radius: 18px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,.15); }
+    h1 { margin: 0 0 12px; font-size: 22px; }
+    .time { font-size: 72px; font-weight: 800; letter-spacing: 1px; text-align:center; margin: 10px 0 6px; }
+    .badge { display:inline-block; padding: 6px 12px; border-radius: 999px; background:#d1fae5; color:#065f46; font-weight:700; font-size: 13px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+    button {
+      flex: 1; min-width: 120px;
+      border: 0; border-radius: 14px; padding: 12px 14px;
+      font-size: 16px; font-weight: 700; cursor: pointer;
+      background:#111827; color:#fff;
+    }
+    button.secondary { background:#334155; }
+    button.ghost { background:#e5e7eb; color:#111827; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 14px; }
+    .field { background:#f3f4f6; border-radius: 14px; padding: 12px; }
+    .field label { display:block; font-size: 12px; opacity:.75; margin-bottom: 6px; }
+    .field input { width:100%; font-size: 16px; padding: 8px 10px; border-radius: 10px; border: 1px solid #d1d5db; }
+    .muted { opacity:.7; font-size: 13px; text-align:center; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>🍅 蕃茄鐘</h1>
+      <div class="badge" id="modeBadge">專注</div>
+      <div class="time" id="timeText">25:00</div>
+
+      <div class="grid">
+        <div class="field">
+          <label>專注(分鐘)</label>
+          <input id="focusMin" type="number" min="1" value="25">
+        </div>
+        <div class="field">
+          <label>休息(分鐘)</label>
+          <input id="breakMin" type="number" min="1" value="5">
+        </div>
+        <div class="field">
+          <label>第幾回合</label>
+          <input id="round" type="number" min="1" value="1" readonly>
+        </div>
+      </div>
+
+      <div class="row">
+        <button id="startBtn">開始</button>
+        <button class="secondary" id="pauseBtn">暫停</button>
+        <button class="ghost" id="resetBtn">重設</button>
+      </div>
+
+      <div class="row">
+        <button class="ghost" id="skipBtn">跳到下一段</button>
+      </div>
+
+      <div class="muted">小提醒：iPhone 若要通知/震動更穩，建議不要鎖屏。</div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  const timeText = $("timeText");
+  const modeBadge = $("modeBadge");
+  const focusMinInput = $("focusMin");
+  const breakMinInput = $("breakMin");
+  const roundInput = $("round");
+
+  const startBtn = $("startBtn");
+  const pauseBtn = $("pauseBtn");
+  const resetBtn = $("resetBtn");
+  const skipBtn = $("skipBtn");
+
+  let timer = null;
+  let mode = "focus"; // "focus" | "break"
+  let remainingSec = 25 * 60;
+  let round = 1;
+
+  const fmt = (sec) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return String(m).padStart(2,"0") + ":" + String(s).padStart(2,"0");
+  };
+
+  const setModeUI = () => {
+    if (mode === "focus") {
+      modeBadge.textContent = "專注";
+      modeBadge.style.background = "#d1fae5";
+      modeBadge.style.color = "#065f46";
+    } else {
+      modeBadge.textContent = "休息";
+      modeBadge.style.background = "#ffe4e6";
+      modeBadge.style.color = "#9f1239";
+    }
+  };
+
+  const syncFromInputs = () => {
+    const focusMin = Math.max(1, parseInt(focusMinInput.value || "25", 10));
+    const breakMin = Math.max(1, parseInt(breakMinInput.value || "5", 10));
+    focusMinInput.value = focusMin;
+    breakMinInput.value = breakMin;
+
+    remainingSec = (mode === "focus" ? focusMin : breakMin) * 60;
+    timeText.textContent = fmt(remainingSec);
+  };
+
+  const beep = () => {
+    // Web Audio 短促提示音
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = 880;
+      g.gain.value = 0.06;
+      o.connect(g); g.connect(ctx.destination);
+      o.start();
+      setTimeout(() => { o.stop(); ctx.close(); }, 180);
+    } catch {}
+    if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
+  };
+
+  const switchMode = () => {
+    const focusMin = Math.max(1, parseInt(focusMinInput.value || "25", 10));
+    const breakMin = Math.max(1, parseInt(breakMinInput.value || "5", 10));
+
+    if (mode === "focus") {
+      mode = "break";
+      remainingSec = breakMin * 60;
+    } else {
+      mode = "focus";
+      round += 1;
+      roundInput.value = round;
+      remainingSec = focusMin * 60;
+    }
+    setModeUI();
+    timeText.textContent = fmt(remainingSec);
+    document.title = (mode === "focus" ? "🍅 專注" : "☕ 休息") + " " + fmt(remainingSec);
+  };
+
+  const tick = () => {
+    remainingSec -= 1;
+    if (remainingSec <= 0) {
+      remainingSec = 0;
+      timeText.textContent = fmt(remainingSec);
+      document.title = "⏰ 時間到！";
+      stop();
+      beep();
+      switchMode();
+      return;
+    }
+    timeText.textContent = fmt(remainingSec);
+    document.title = (mode === "focus" ? "🍅" : "☕") + " " + fmt(remainingSec);
+  };
+
+  const start = async () => {
+    if (timer) return;
+    // iOS 可能需要 user gesture 後才能開 AudioContext，所以 start 時先喚醒一下
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      await ctx.resume();
+      ctx.close();
+    } catch {}
+    timer = setInterval(tick, 1000);
+  };
+
+  const stop = () => {
+    if (!timer) return;
+    clearInterval(timer);
+    timer = null;
+  };
+
+  const reset = () => {
+    stop();
+    mode = "focus";
+    round = 1;
+    roundInput.value = round;
+    setModeUI();
+    syncFromInputs();
+    document.title = "蕃茄鐘";
+  };
+
+  const skip = () => {
+    stop();
+    beep();
+    switchMode();
+  };
+
+  // Events
+  startBtn.addEventListener("click", start);
+  pauseBtn.addEventListener("click", stop);
+  resetBtn.addEventListener("click", reset);
+  skipBtn.addEventListener("click", skip);
+
+  focusMinInput.addEventListener("change", () => { if (!timer) syncFromInputs(); });
+  breakMinInput.addEventListener("change", () => { if (!timer) syncFromInputs(); });
+
+  // init
+  setModeUI();
+  syncFromInputs();
+})();
+</script>
+</body>
+</html>
